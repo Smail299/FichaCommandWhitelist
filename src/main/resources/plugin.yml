@@ -1,0 +1,14 @@
+#
+#        » Leaked by @FichaDev «
+#        Studio: t.me/FichaDev
+#        Hentai: t.me/FichaHentai
+#
+name: FichaCommandWhitelist
+version: '${project.version}'
+main: ua.fichamine.fichacommandwhitelist.FichaCommandWhitelist
+api-version: 1.13
+depend: [CommandWhitelist, ProtocolLib]
+website: https://t.me/FichaDev
+authors:
+  - Smail
+  - FichaDev
