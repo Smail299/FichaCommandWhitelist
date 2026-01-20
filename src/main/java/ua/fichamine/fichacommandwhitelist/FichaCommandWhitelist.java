@@ -21,9 +21,11 @@ public final class FichaCommandWhitelist extends JavaPlugin {
     private Map<String, String> groupMessages = new HashMap<>();
     private Map<String, List<String>> commandGroups = new HashMap<>();
     private Map<String, List<String>> subcommandGroups = new HashMap<>();
+    private Map<Player, String> lastCommandMap = new HashMap<>();
     private Plugin cwlPlugin;
     private ProtocolManager protocolManager;
-    private PacketAdapter packetAdapter;
+    private PacketAdapter sendAdapter;
+    private PacketAdapter receiveAdapter;
 
     @Override
     public void onEnable() {
@@ -42,7 +44,7 @@ public final class FichaCommandWhitelist extends JavaPlugin {
         loadConfig();
         loadCommandWhitelistConfig(cwlPlugin);
 
-        packetAdapter = new PacketAdapter(this, ListenerPriority.NORMAL, PacketType.Play.Client.CHAT) {
+        receiveAdapter = new PacketAdapter(this, ListenerPriority.MONITOR, PacketType.Play.Client.CHAT) {
             @Override
             public void onPacketReceiving(PacketEvent event) {
                 if (event.getPlayer() == null) return;
@@ -50,44 +52,57 @@ public final class FichaCommandWhitelist extends JavaPlugin {
                 Player player = event.getPlayer();
                 String message = event.getPacket().getStrings().read(0);
 
-                if (!message.startsWith("/")) return;
-
-                String fullCommand = message.substring(1).toLowerCase();
-                String[] parts = fullCommand.split(" ");
-                String command = parts[0];
-
-                String requiredGroup = findRequiredGroupForCommand(command, player);
-                if (requiredGroup != null) {
-                    String denyMessage = getGroupRequiredMessage(requiredGroup);
-                    if (denyMessage != null) {
-                        Bukkit.getScheduler().runTask(FichaCommandWhitelist.this, () -> player.sendMessage(denyMessage));
-                        event.setCancelled(true);
-                        return;
-                    }
-                }
-
-                if (parts.length > 1) {
-                    String subcommand = parts[1];
-                    String requiredSubcommandGroup = findRequiredGroupForSubcommand(subcommand, player);
-                    if (requiredSubcommandGroup != null) {
-                        String denyMessage = getGroupRequiredMessage(requiredSubcommandGroup);
-                        if (denyMessage != null) {
-                            Bukkit.getScheduler().runTask(FichaCommandWhitelist.this, () -> player.sendMessage(denyMessage));
-                            event.setCancelled(true);
-                        }
-                    }
+                if (message.startsWith("/")) {
+                    String command = message.substring(1).split(" ")[0].toLowerCase();
+                    lastCommandMap.put(player, command);
                 }
             }
         };
 
-        protocolManager.addPacketListener(packetAdapter);
+        sendAdapter = new PacketAdapter(this, ListenerPriority.LOWEST, PacketType.Play.Server.CHAT) {
+            @Override
+            public void onPacketSending(PacketEvent event) {
+                if (event.getPlayer() == null) return;
+
+                Player player = event.getPlayer();
+
+                try {
+                    String lastCommand = lastCommandMap.get(player);
+                    if (lastCommand != null) {
+                        String requiredGroup = findRequiredGroupForCommand(lastCommand, player);
+                        if (requiredGroup != null) {
+                            String customMessage = getGroupRequiredMessage(requiredGroup);
+                            if (customMessage != null) {
+                                event.setCancelled(true);
+                                lastCommandMap.remove(player);
+                                Bukkit.getScheduler().runTask(FichaCommandWhitelist.this, () -> {
+                                    player.sendMessage(customMessage);
+                                });
+                            }
+                        } else {
+                            lastCommandMap.remove(player);
+                        }
+                    }
+                } catch (Exception e) {
+                }
+            }
+        };
+
+        protocolManager.addPacketListener(receiveAdapter);
+        protocolManager.addPacketListener(sendAdapter);
     }
 
     @Override
     public void onDisable() {
-        if (protocolManager != null && packetAdapter != null) {
-            protocolManager.removePacketListener(packetAdapter);
+        if (protocolManager != null) {
+            if (receiveAdapter != null) {
+                protocolManager.removePacketListener(receiveAdapter);
+            }
+            if (sendAdapter != null) {
+                protocolManager.removePacketListener(sendAdapter);
+            }
         }
+        lastCommandMap.clear();
     }
 
     public void loadConfig() {
@@ -123,20 +138,6 @@ public final class FichaCommandWhitelist extends JavaPlugin {
             List<String> commands = entry.getValue();
 
             if (commands.contains(command)) {
-                if (!player.hasPermission("commandwhitelist." + group) && !player.hasPermission("commandwhitelist.*")) {
-                    return group;
-                }
-            }
-        }
-        return null;
-    }
-
-    private String findRequiredGroupForSubcommand(String subcommand, Player player) {
-        for (Map.Entry<String, List<String>> entry : subcommandGroups.entrySet()) {
-            String group = entry.getKey();
-            List<String> subcommands = entry.getValue();
-
-            if (subcommands.contains(subcommand)) {
                 if (!player.hasPermission("commandwhitelist." + group) && !player.hasPermission("commandwhitelist.*")) {
                     return group;
                 }
